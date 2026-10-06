@@ -65,6 +65,32 @@ def is_russian(text):
     return bool(letters) and len(CYR_RE.findall(text)) / len(letters) > 0.5
 
 
+LIST_LINE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+
+
+def plain_sentences(text):
+    """Every prose sentence, short ones included; list items and hashtags skipped."""
+    out = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or LIST_LINE.match(line) or line.startswith("#"):
+            continue
+        out += [s for s in re.split(r"(?<=[.!?])\s+", line) if re.search(r"\w", s)]
+    return out
+
+
+def check_rhythm_ru(text):
+    """Russian drafts: chopped one-liners read as AI. People join thoughts with commas."""
+    lens = [len(s.split()) for s in plain_sentences(text)]
+    if len(lens) < 4:
+        return 50.0, "too short to judge"
+    short = sum(1 for n in lens if n <= 5) / len(lens)
+    mean = statistics.mean(lens)
+    score = scale(short, human=0.15, machine=0.50) * 0.5 + scale(mean, human=14.0, machine=7.0) * 0.5
+    return score, (f"{short:.0%} коротких фраз (до 5 слов, надо до 20%), "
+                   f"в среднем {mean:.1f} слова на предложение (надо 12+)")
+
+
 def check_burstiness(text):
     """Humans vary sentence length hard. Models write even."""
     lens = [len(s.split()) for s in sentences(text)]
@@ -120,12 +146,13 @@ def check_fingerprint(text):
     em = text.count("—")
     curly = sum(text.count(c) for c in "‘’“”")
     ellip = text.count("…")
+    yo = text.count("ё") + text.count("Ё")
     nbsp = sum(text.count(c) for c in "   ")
-    total = invisible * 4 + em * 2 + curly + ellip + nbsp
+    total = invisible * 4 + em * 2 + curly + ellip + nbsp + yo
     per1k = total * 1000 / max(len(text), 1)
     score = scale(per1k, human=0.0, machine=12.0)
     detail = (f"{invisible} invisible, {em} em dash, {curly} curly quote, "
-              f"{ellip} ellipsis, {nbsp} hard space")
+              f"{ellip} ellipsis, {nbsp} hard space" + (f", {yo} ё" if yo else ""))
     return score, detail
 
 
@@ -180,7 +207,9 @@ def run(text, lex):
     results["SLOP DENSITY"] = check_slop(text, lex)
     results["FINGERPRINT"] = check_fingerprint(text)
     results["VOICE"] = check_voice(text, lex)
-    scores = [results[c][0] for c in CHECKS]
+    if is_russian(text):
+        results["RHYTHM"] = check_rhythm_ru(text)
+    scores = [v[0] for v in results.values()]
     # The weakest check drags the verdict: a detector only needs one signal.
     overall = statistics.mean(scores) * 0.6 + min(scores) * 0.4
     verdict = "PASS" if overall >= 70 and min(scores) >= 55 else (
@@ -197,14 +226,14 @@ def render(results, overall, verdict, label=None, out=sys.stdout):
     title = "AI DETECTION PANEL" + (f"  -  {label}" if label else "")
     print("\n" + title, file=out)
     print("=" * max(len(title), 62), file=out)
-    for name in CHECKS:
+    for name in results:
         score, detail = results[name]
         print(f"  {name:<13} {bar(score)} {score:5.1f}", file=out)
         print(f"  {'':<13} {detail}", file=out)
     print("-" * 62, file=out)
     print(f"  {'HUMAN SCORE':<13} {bar(overall)} {overall:5.1f}   {verdict}", file=out)
     if verdict != "PASS":
-        weakest = min(CHECKS, key=lambda c: results[c][0])
+        weakest = min(results, key=lambda c: results[c][0])
         print(f"\n  Weakest signal: {weakest}. Fix that first.", file=out)
     print("", file=out)
 

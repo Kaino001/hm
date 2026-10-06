@@ -170,6 +170,25 @@ def scan_structures(text, lex):
         if found:
             flags.append({"name": f"Русский штамп: {s['name']}", "count": len(found),
                           "fix": "Замени простым словом или убери."})
+    # Russian: three or more short sentences in a row read as chopped, machine rhythm.
+    if len(re.findall(r"[А-Яа-яЁё]", text)) > len(re.findall(r"[A-Za-z]", text)):
+        prose = []
+        for line in text.splitlines():
+            line = line.strip()
+            if line and not re.match(r"^(?:[-*•]|\d+[.)])\s+", line) and not line.startswith("#"):
+                prose += [s for s in re.split(r"(?<=[.!?])\s+", line) if re.search(r"\w", s)]
+        run_len, runs = 0, 0
+        for s in prose:
+            run_len = run_len + 1 if len(s.split()) <= 5 else 0
+            if run_len == 3:
+                runs += 1
+        short = [s for s in prose if len(s.split()) <= 5]
+        if runs or (prose and len(short) / len(prose) > 0.3):
+            flags.append({
+                "name": f"Рубленые короткие фразы ({len(short)} из {len(prose)}, серий подряд: {runs})",
+                "count": len(short),
+                "fix": "Склей соседние короткие фразы через запятую или «и», «а», «потому что», как в обычной речи.",
+            })
     # Sentence-length uniformity is structural too.
     lens = [len(s.split()) for s in SENT_RE.findall(text) if len(s.split()) > 2]
     if len(lens) >= 4:
