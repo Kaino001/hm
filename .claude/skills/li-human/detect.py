@@ -33,11 +33,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LEX = os.path.join(HERE, "slop.json")
 
 SENT_RE = re.compile(r"[^.!?\n]+[.!?]*")
-WORD_RE = re.compile(r"[A-Za-z']+")
+WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё']+")
+CYR_RE = re.compile(r"[А-Яа-яЁё]")
 CONTRACTIONS = re.compile(r"\b\w+'(?:s|t|re|ve|ll|d|m)\b", re.IGNORECASE)
-PRONOUNS = re.compile(r"\b(i|me|my|mine|we|us|our|you|your)\b", re.IGNORECASE)
+PRONOUNS = re.compile(r"\b(i|me|my|mine|we|us|our|you|your|я|меня|мне|мной|мой|моя|моё|мое|мои|моего|моей|моих|мы|нас|нам|нами|наш|наша|наше|наши|нашей|наших|ты|тебя|тебе|тобой|твой|твоя|твоё|твое|твои|твоей|твоих|вы|вас|вам|вами|ваш|ваша|ваше|ваши|вашей|ваших)\b", re.IGNORECASE)
 NUMBERS = re.compile(r"\b\d[\d,.]*%?\b|\$\d")
-PROPER = re.compile(r"(?<![.!?]\s)(?<!^)\b[A-Z][a-z]{2,}\b", re.MULTILINE)
+PROPER = re.compile(r"(?<![.!?]\s)(?<!^)\b(?:[A-ZА-ЯЁ][a-zа-яё]{2,}|[A-ZА-ЯЁ]{2,})\b", re.MULTILINE)
 
 
 def clamp(n):
@@ -57,6 +58,11 @@ def sentences(text):
 
 def words(text):
     return WORD_RE.findall(text)
+
+
+def is_russian(text):
+    letters = [c for c in text if c.isalpha()]
+    return bool(letters) and len(CYR_RE.findall(text)) / len(letters) > 0.5
 
 
 def check_burstiness(text):
@@ -95,6 +101,11 @@ def check_slop(text, lex):
         if n:
             hits += n
             found.append(entry["find"])
+    for entry in lex.get("ru_words", []):
+        n = len(re.findall(entry["regex"], text))
+        if n:
+            hits += n
+            found.append(entry["name"])
     density = hits * 100 / len(w)
     score = scale(density, human=0.0, machine=4.0)
     detail = f"{hits} stock terms, {density:.1f} per 100 words"
@@ -138,14 +149,22 @@ def check_voice(text, lex):
             names.append(s["id"])
     bullets = [len(b.split()) for b in re.findall(r"(?m)^\s*[-*•]\s+(.+)$", text)]
     uniform = (len(bullets) >= 3 and statistics.pstdev(bullets) < 1.6)
-    score = (scale(contractions, human=3.0, machine=0.0) * 0.35
-             + scale(person, human=8.0, machine=1.0) * 0.35
-             + clamp(100 - tells * 22) * 0.30)
+    if is_russian(text):
+        # Russian has no contractions; weigh person and structure instead.
+        score = (scale(person, human=8.0, machine=1.0) * 0.5
+                 + clamp(100 - tells * 22) * 0.5)
+    else:
+        score = (scale(contractions, human=3.0, machine=0.0) * 0.35
+                 + scale(person, human=8.0, machine=1.0) * 0.35
+                 + clamp(100 - tells * 22) * 0.30)
     if uniform:
         score -= 12
         names.append("uniform-bullets")
-    detail = (f"{contractions:.1f} contractions, {person:.1f} personal pronouns "
-              f"per 100 words, {tells} structural tell(s)")
+    if is_russian(text):
+        detail = (f"{person:.1f} personal pronouns per 100 words (ru), {tells} structural tell(s)")
+    else:
+        detail = (f"{contractions:.1f} contractions, {person:.1f} personal pronouns "
+                  f"per 100 words, {tells} structural tell(s)")
     if names:
         detail += " [" + ", ".join(names[:4]) + "]"
     return clamp(score), detail

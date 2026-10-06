@@ -164,6 +164,12 @@ def scan_structures(text, lex):
         found = pattern.findall(text)
         if found:
             flags.append({"name": s["name"], "count": len(found), "fix": s["fix"]})
+    # Russian stock words are flagged, not replaced: case endings make blind swaps unsafe.
+    for s in lex.get("ru_words", []):
+        found = re.findall(s["regex"], text)
+        if found:
+            flags.append({"name": f"Русский штамп: {s['name']}", "count": len(found),
+                          "fix": "Замени простым словом или убери."})
     # Sentence-length uniformity is structural too.
     lens = [len(s.split()) for s in SENT_RE.findall(text) if len(s.split()) > 2]
     if len(lens) >= 4:
