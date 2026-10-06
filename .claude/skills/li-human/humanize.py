@@ -175,7 +175,7 @@ def scan_structures(text, lex):
         prose = []
         for line in text.splitlines():
             line = line.strip()
-            if line and not re.match(r"^(?:[-*•]|\d+[.)])\s+", line) and not line.startswith("#"):
+            if line and not re.match(r"^(?:[-*•]|\d+[.)])\s+|^[^.!?]{1,40}\s[-–→]\s", line) and not line.startswith("#"):
                 prose += [s for s in re.split(r"(?<=[.!?])\s+", line) if re.search(r"\w", s)]
         run_len, runs = 0, 0
         for s in prose:

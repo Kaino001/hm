@@ -65,7 +65,7 @@ def is_russian(text):
     return bool(letters) and len(CYR_RE.findall(text)) / len(letters) > 0.5
 
 
-LIST_LINE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+LIST_LINE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+|^[^.!?]{1,40}\s[-–→]\s")
 
 
 def plain_sentences(text):
@@ -178,7 +178,8 @@ def check_voice(text, lex):
     uniform = (len(bullets) >= 3 and statistics.pstdev(bullets) < 1.6)
     if is_russian(text):
         # Russian has no contractions; weigh person and structure instead.
-        score = (scale(person, human=8.0, machine=1.0) * 0.5
+        # Expert explainer posts in Russian use few pronouns; calibrated on sample posts.
+        score = (scale(person, human=3.0, machine=0.0) * 0.5
                  + clamp(100 - tells * 22) * 0.5)
     else:
         score = (scale(contractions, human=3.0, machine=0.0) * 0.35
